@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Minimal Monkeytype-like Typing Game</title>
+  <style>
+    :root{
+      --bg:#0f1216;
+      --panel:#141922;
+      --text:#d6e2f3;
+      --muted:#8a96a6;
+      --accent:#7cc3ff;
+      --good:#6be675;
+      --bad:#ff6b6b;
+      --warning:#ffcc66;
+    }
+    *{box-sizing:border-box}
+    html,body{
+      margin:0;
+      height:100%;
+      background:var(--bg);
+      color:var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+    a{color:var(--accent);text-decoration:none}
+    .app{
+      min-height:100%;
+      display:flex;
+      flex-direction:column;
+    }
+    header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:16px clamp(12px, 4vw, 28px);
+      background:linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+      border-bottom:1px solid rgba(255,255,255,0.06);
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(6px);
+    }
+    .brand{
+      display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.5px
+    }
+    .dot{
+      width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent);
+    }
+    .controls{
+      display:flex;align-items:center;gap:12px;flex-wrap:wrap
+    }
+    .segmented{
+      display:flex;background:var(--panel);border:1px solid rgba(255,255,255,0.08);border-radius:10px;overflow:hidden
+    }
+    .segmented button{
+      appearance:none;border:0;background:transparent;color:var(--muted);
+      padding:8px 12px;cursor:pointer;font-weight:600;transition:.15s;
+    }
+    .segmented button.active{color:var(--text);background:rgba(255,255,255,0.06)}
+    .segmented button:hover{color:var(--text);background:rgba(255,255,255,0.04)}
+    .btn{
+      appearance:none;border:1px solid rgba(255,255,255,0.12);background:transparent;
+      color:var(--text);padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:600;
+    }
+    .btn:hover{background:rgba(255,255,255,0.06)}
+    .stats{
+      display:flex;gap:14px;align-items:center;color:var(--muted);font-weight:600
+    }
+    .stats .val{color:var(--text)}
+    main{
+      flex:1;display:flex;align-items:center;justify-content:center;padding:24px;
+    }
+    .board{
+      width:min(900px, 92vw);
+    }
+    .words{
+      background:var(--panel);
+      border:1px solid rgba(255,255,255,0.08);
+      border-radius:14px;
+      padding:22px;
+      min-height:140px;
+      line-height:2.0;
+      user-select:none;
+      position:relative;
+      cursor:text;
+    }
+    .hint{
+      position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+      color:var(--muted);pointer-events:none;opacity:.8;font-weight:600;
+    }
+    .word{
+      display:inline-block;margin-right:14px;position:relative;
+    }
+    .char{
+      color:var(--muted);
+      transition: color .05s ease;
+    }
+    .char.correct{color:var(--good)}
+    .char.incorrect{color:var(--bad)}
+    .word.current{background:rgba(255,255,255,0.02);border-radius:6px}
+    .extra{opacity:.9}
+    #caret{
+      display:inline-block;width:2px;background:var(--accent);
+      height:1.35em;vertical-align:bottom;position:relative;top:2px;margin-right:0px;
+      animation:blink 1s step-end infinite;
+      box-shadow:0 0 8px var(--accent);
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+    footer{
+      padding:14px clamp(12px, 4vw, 28px);color:var(--muted);font-size:12px;border-top:1px solid rgba(255,255,255,0.06)
+    }
+    .kbd{
+      border:1px solid rgba(255,255,255,0.16);border-bottom-width:2px;background:rgba(255,255,255,0.04);
+      padding:2px 6px;border-radius:6px;font-weight:700;color:var(--text)
+    }
+    .sr-only{position:absolute !important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    .results{
+      margin-top:14px;display:flex;gap:14px;color:var(--muted);
+    }
+    .results .pill{
+      background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);padding:8px 10px;border-radius:10px;
+      color:var(--text);font-weight:700
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="dot" aria-hidden="true"></div>
+      <div>TypeLite</div>
+    </div>
+    <div class="controls">
+      <div class="segmented" role="tablist" aria-label="Time limits">
+        <button class="active" data-time="30" role="tab" aria-selected="true">30s</button>
+        <button data-time="60" role="tab" aria-selected="false">60s</button>
+        <button data-time="120" role="tab" aria-selected="false">120s</button>
+      </div>
+      <button id="restartBtn" class="btn" title="Restart (Tab)">Restart</button>
+    </div>
+    <div class="stats" aria-live="polite" aria-atomic="true">
+      <div>Time: <span id="time" class="val">30</span>s</div>
+      <div>WPM: <span id="wpm" class="val">0</span></div>
+      <div>Accuracy: <span id="acc" class="val">100%</span></div>
+    </div>
+  </header>
+
+  <main>
+    <div class="board">
+      <div id="words" class="words" tabindex="0" aria-label="Typing area">
+        <div id="hint" class="hint">
+          Click here and start typing. Press Space between words. Press Tab to restart.
+        </div>
+        <!-- words + caret injected here -->
+      </div>
+      <input id="ghostInput" class="sr-only" aria-hidden="true" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="results" id="results" hidden>
+        <div class="pill">Time: <span id="r-time">0</span>s</div>
+        <div class="pill">WPM: <span id="r-wpm">0</span></div>
+        <div class="pill">Accuracy: <span id="r-acc">0%</span></div>
+        <div class="pill">Chars: <span id="r-chars">0/<span id="r-correct">0</span></span></div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    Tip: Use Backspace to fix within the current word. Press <span class="kbd">Tab</span> to restart. Changing the time resets the test.
+  </footer>
+</div>
+
+<script>
+(function(){
+  const WORDS = `
+the of and to in is you that it he was for on are as with his they at be this from I have or by one had not but what all were when we there can an your which their said if do will each about how up out them then she many some so these would other into has more her two like him see time could no make than first been its who now people my made over did down only way find use may water long little very after words called just where most know get through back much go good new write our me man too any day same right look think also around another came come work three must because does part
+`.trim().split(/\s+/);
+
+  const wordsEl = document.getElementById('words');
+  const hintEl = document.getElementById('hint');
+  const ghostInput = document.getElementById('ghostInput');
+  const restartBtn = document.getElementById('restartBtn');
+  const resultsEl = document.getElementById('results');
+
+  const timeEl = document.getElementById('time');
+  const wpmEl = document.getElementById('wpm');
+  const accEl = document.getElementById('acc');
+
+  const rTimeEl = document.getElementById('r-time');
+  const rWpmEl = document.getElementById('r-wpm');
+  const rAccEl = document.getElementById('r-acc');
+  const rCharsEl = document.getElementById('r-chars');
+  const rCorrectEl = document.getElementById('r-correct');
+
+  const timeButtons = Array.from(document.querySelectorAll('.segmented button'));
+
+  let sequence = [];
+  let currentWordIndex = 0;
+  let typed = []; // typed characters for current word
+  let started = false;
+  let gameOver = false;
+
+  let timeLimit = 30;
+  let timeLeft = 30;
+  let timerId = null;
+  let startTs = 0;
+
+  let totalChars = 0;
+  let correctChars = 0;
+
+  // Build initial UI
+  function generateWords(count=220){
+    const arr = [];
+    for(let i=0;i<count;i++){
+      arr.push(WORDS[Math.floor(Math.random()*WORDS.length)]);
+    }
+    return arr;
+  }
+
+  function clearWords(){
+    while(wordsEl.firstChild){
+      wordsEl.removeChild(wordsEl.firstChild);
+    }
+  }
+
+  function renderWords(){
+    clearWords();
+    const frag = document.createDocumentFragment();
+    sequence.forEach((word, idx)=>{
+      const w = document.createElement('span');
+      w.className = 'word' + (idx===0 ? ' current' : '');
+      // letters
+      for(const ch of word){
+        const s = document.createElement('span');
+        s.className = 'char';
+        s.textContent = ch;
+        w.appendChild(s);
+      }
+      frag.appendChild(w);
+      frag.appendChild(document.createTextNode(' ')); // keep spacing fallback
+    });
+    wordsEl.appendChild(frag);
+    // caret
+    placeCaret();
+  }
+
+  function placeCaret(){
+    // Remove existing caret
+    const existing = document.getElementById('caret');
+    if(existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+    const currentWordEl = wordsEl.querySelectorAll('.word')[currentWordIndex];
+    if(!currentWordEl) return;
+    const letters = Array.from(currentWordEl.querySelectorAll('.char'));
+
+    const caret = document.createElement('span');
+    caret.id = 'caret';
+
+    if(typed.length < letters.length){
+      currentWordEl.insertBefore(caret, letters[typed.length]);
+    }else{
+      currentWordEl.appendChild(caret);
+    }
+
+    // Ensure current word visible
+    const rect = currentWordEl.getBoundingClientRect();
+    const area = wordsEl.getBoundingClientRect();
+    if(rect.bottom > area.bottom - 16){
+      // scroll content upward by removing previous words rows (simple approach: regenerate with offset)
+      // Minimal: increase padding-top to simulate scroll
+      currentWordEl.scrollIntoView({block:'center', inline:'nearest', behavior:'smooth'});
+    }
+  }
+
+  function updateCurrentWordDisplay(){
+    const currentWordEl = wordsEl.querySelectorAll('.word')[currentWordIndex];
+    if(!currentWordEl) return;
+    const target = sequence[currentWordIndex];
+    const letters = Array.from(currentWordEl.querySelectorAll('.char'));
+
+    // Reset classes
+    letters.forEach(l=>{ l.classList.remove('correct','incorrect'); });
+
+    // Remove any extra spans
+    Array.from(currentWordEl.querySelectorAll('.extra')).forEach(e=>e.remove());
+
+    // Paint typed
+    for(let i=0;i<typed.length;i++){
+      if(i < letters.length){
+        if(typed[i] === target[i]){
+          letters[i].classList.add('correct');
+        }else{
+          letters[i].classList.add('incorrect');
+        }
+      }else{
+        // extra letter
+        const s = document.createElement('span');
+        s.className = 'char extra incorrect';
+        s.textContent = typed[i];
+        currentWordEl.appendChild(s);
+      }
+    }
+
+    placeCaret();
+  }
+
+  function startTimer(){
+    startTs = performance.now();
+    timeLeft = timeLimit;
+    timeEl.textContent = timeLeft;
+    timerId = setInterval(()=>{
+      const elapsed = Math.floor((performance.now() - startTs)/1000);
+      const remain = Math.max(0, timeLimit - elapsed);
+      timeLeft = remain;
+      timeEl.textContent = remain.toString();
+      updateStats();
+      if(remain <= 0){
+        endGame();
+      }
+    }, 100);
+  }
+
+  function updateStats(){
+    const elapsed = Math.max(0.001, (performance.now() - startTs)/1000); // avoid zero
+    const wpm = Math.floor((correctChars / 5) / (elapsed/60));
+    const acc = totalChars === 0 ? 100 : Math.max(0, Math.min(100, Math.round((correctChars/totalChars)*100)));
+    wpmEl.textContent = isFinite(wpm) && wpm>=0 ? wpm : '0';
+    accEl.textContent = acc + '%';
+  }
+
+  function endGame(){
+    if(gameOver) return;
+    gameOver = true;
+    clearInterval(timerId);
+    timerId = null;
+    // Hide caret
+    const c = document.getElementById('caret');
+    if(c) c.remove();
+    // Show results
+    const elapsed = Math.max(1, Math.round((performance.now() - startTs)/1000));
+    const wpm = Math.floor((correctChars / 5) / (elapsed/60));
+    const acc = totalChars === 0 ? 100 : Math.round((correctChars/totalChars)*100);
+    rTimeEl.textContent = timeLimit.toString();
+    rWpmEl.textContent = String(Math.max(0, wpm|0));
+    rAccEl.textContent = acc + '%';
+    rCorrectEl.textContent = String(correctChars);
+    rCharsEl.firstChild.nodeValue = totalChars + '/';
+    resultsEl.hidden = false;
+  }
+
+  function reset(stateOnly=false){
+    clearInterval(timerId);
+    timerId = null;
+    started = false;
+    gameOver = false;
+    timeLeft = timeLimit;
+    timeEl.textContent = timeLeft.toString();
+    totalChars = 0;
+    correctChars = 0;
+    currentWordIndex = 0;
+    typed = [];
+    resultsEl.hidden = true;
+
+    // words
+    sequence = generateWords(260);
+    renderWords();
+    updateStats();
+
+    // set current word marker
+    wordsEl.querySelectorAll('.word').forEach((w,i)=>{
+      w.classList.toggle('current', i===0);
+    });
+
+    hintEl.style.display = '';
+  }
+
+  function commitWordAndAdvance(){
+    // Mark this word done
+    const wordEls = wordsEl.querySelectorAll('.word');
+    const currentWordEl = wordEls[currentWordIndex];
+    if(currentWordEl){
+      currentWordEl.classList.remove('current');
+    }
+
+    currentWordIndex++;
+    if(currentWordIndex >= sequence.length - 50){
+      // extend with more words to avoid running out
+      sequence = sequence.concat(generateWords(200));
+      // Append to DOM quickly
+      const frag = document.createDocumentFragment();
+      for(let i = wordsEl.querySelectorAll('.word').length; i < sequence.length; i++){
+        const w = document.createElement('span');
+        w.className='word';
+        for(const ch of sequence[i]){
+          const s = document.createElement('span');
+          s.className='char';
+          s.textContent=ch;
+          w.appendChild(s);
+        }
+        frag.appendChild(w);
+        frag.appendChild(document.createTextNode(' '));
+      }
+      wordsEl.appendChild(frag);
+    }
+
+    // Set next word current
+    const next = wordsEl.querySelectorAll('.word')[currentWordIndex];
+    if(next) next.classList.add('current');
+
+    // Reset typed for next word
+    typed = [];
+    updateCurrentWordDisplay();
+  }
+
+  function handleChar(ch){
+    if(gameOver) return;
+    if(!started){
+      started = true;
+      hintEl.style.display = 'none';
+      startTimer();
+    }
+    const target = sequence[currentWordIndex] || '';
+    const at = typed.length;
+
+    // Update counts first
+    totalChars++;
+    if(at < target.length && ch === target[at]){
+      correctChars++;
+    }
+    // Append to typed buffer
+    typed.push(ch);
+    updateCurrentWordDisplay();
+    updateStats();
+  }
+
+  function handleBackspace(){
+    if(gameOver) return;
+    if(typed.length === 0) return; // keep simple: no back into previous word
+    const target = sequence[currentWordIndex] || '';
+    const removed = typed.pop();
+    // Adjust counts
+    totalChars = Math.max(0, totalChars - 1);
+    const idx = typed.length; // index that was removed
+    if(idx < target.length){
+      if(removed === target[idx]){
+        correctChars = Math.max(0, correctChars - 1);
+      }
+    }else{
+      // was an extra incorrect, counts already deducted via totalChars; nothing else needed
+    }
+    updateCurrentWordDisplay();
+    updateStats();
+  }
+
+  function handleSpace(){
+    if(gameOver) return;
+    if(!started){
+      started = true;
+      hintEl.style.display = 'none';
+      startTimer();
+    }
+    // Move to next word
+    commitWordAndAdvance();
+    updateStats();
+  }
+
+  function onKeydown(e){
+    // Restart shortcuts
+    if(e.key === 'Tab'){
+      e.preventDefault();
+      restart();
+      return;
+    }
+    if(e.key === 'Enter' && gameOver){
+      e.preventDefault();
+      restart();
+      return;
+    }
+
+    if(gameOver) return;
+
+    if(e.key === ' '){
+      e.preventDefault();
+      handleSpace();
+      return;
+    }
+    if(e.key === 'Backspace'){
+      e.preventDefault();
+      handleBackspace();
+      return;
+    }
+
+    if(e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey){
+      // Normalize to simple char
+      const ch = e.key;
+      handleChar(ch);
+      return;
+    }
+  }
+
+  function attachEvents(){
+    window.addEventListener('keydown', onKeydown);
+    wordsEl.addEventListener('click', ()=>{
+      ghostInput.focus({preventScroll:true});
+      wordsEl.focus({preventScroll:true});
+    });
+    restartBtn.addEventListener('click', restart);
+    ghostInput.addEventListener('blur', ()=>{
+      // keep focus on area for desktop typing feel
+      setTimeout(()=>{ if(document.activeElement !== wordsEl) wordsEl.focus({preventScroll:true}); }, 0);
+    });
+    timeButtons.forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const t = parseInt(btn.dataset.time,10);
+        if(!Number.isFinite(t)) return;
+        timeButtons.forEach(b=>{
+          b.classList.toggle('active', b===btn);
+          b.setAttribute('aria-selected', b===btn ? 'true' : 'false');
+        });
+        timeLimit = t;
+        restart(); // Changing time resets the test
+      });
+    });
+  }
+
+  function restart(){
+    reset();
+    ghostInput.value = '';
+    ghostInput.focus({preventScroll:true});
+    wordsEl.focus({preventScroll:true});
+  }
+
+  // Init
+  reset();
+  attachEvents();
+  // Focus ready
+  setTimeout(()=>{
+    wordsEl.focus({preventScroll:true});
+  },0);
+})();
+</script>
+</body>
+</html>
